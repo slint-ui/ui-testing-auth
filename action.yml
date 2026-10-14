@@ -1,0 +1,29 @@
+name: Slint UI Testing auth
+description: >-
+  Authenticates uv to the Slint UI Testing package index with a short-lived
+  token, exchanged for this job's GitHub OIDC token. No stored secret needed.
+author: Slint
+branding:
+  icon: lock
+  color: blue
+
+inputs:
+  index-name:
+    description: >-
+      The name of the `[[tool.uv.index]]` entry for https://testing.slint.dev/simple/.
+      The credentials are exported as UV_INDEX_<NAME>_USERNAME/_PASSWORD.
+    default: slint-private
+  account-url:
+    description: The Slint account that issues the token.
+    default: https://account.slint.dev
+  audience:
+    description: The service the token is for.
+    default: https://testing.slint.dev
+
+outputs:
+  token:
+    description: The short-lived token (also exported for uv and masked in logs).
+
+runs:
+  using: node24
+  main: index.js
