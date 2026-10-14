@@ -59,7 +59,9 @@ to register it.
 
 ## Notes
 
-- The token is valid for a few hours, and only for `testing.slint.dev`.
+- The token is valid for 6 hours, and only for `testing.slint.dev`. In a job
+  that runs uv more than 6 hours after this step, for example on a
+  self-hosted runner, run the action again right before that uv step.
 - Pull requests from forks don't get an OIDC token, just as they don't get
   secrets, so the step fails there.
 - The action has no dependencies and runs on Linux, macOS and Windows runners.
