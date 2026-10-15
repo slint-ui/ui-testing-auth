@@ -6,8 +6,8 @@ stored secret.
 
 The action exchanges the job's GitHub OIDC token for a short-lived Slint token
 and exports it as the index credentials uv reads. This works like PyPI's trusted
-publishing: your Slint organization registers the repository once, and there is
-no token to create, store or rotate.
+publishing: the repository is registered once, and there is no token to create,
+store or rotate.
 
 ## Usage
 
@@ -39,9 +39,17 @@ slint-testing = { index = "slint-private" }
 
 ### Setup
 
-Your Slint organization needs the UI testing add-on, and the repository has to
-be registered with it. Until that can be done in your Slint account, ask Slint
-to register it.
+Register the repository on your UI testing page in the Slint account, under CI
+repositories (`owner/repo`). Your seat needs the UI testing add-on, and the
+token then carries its UI testing entitlement. Anyone else with UI testing may
+register the same repository too; a run works while any of them still has it.
+
+The first run records GitHub's id for the repository. From then on a renamed or
+transferred repository keeps working; one deleted and re-created under the same
+name doesn't, so remove its registration and add it again.
+
+Slint can also register a repository for your organization; the token then
+carries your organization's entitlements.
 
 ### Inputs
 
@@ -70,8 +78,10 @@ to register it.
 
 1. The job asks GitHub for an OIDC token whose audience is the Slint account.
 2. The action sends it to `POST <account-url>/api/auth/ci-token?resource=<audience>`.
-   The account checks it against GitHub's published keys, looks up which Slint
-   organization the repository is registered with, and returns a token signed
-   by the account that lists that organization's entitlements.
+   The account checks it against GitHub's published keys, then looks up the
+   repository: registered by Slint for an organization, the token lists that
+   organization's entitlements; registered on a UI testing page, it carries the
+   UI testing entitlement of a seat that registered it. The token is signed by
+   the account.
 3. uv sends that token as the index password. `testing.slint.dev` checks it
    against the account's published keys.
