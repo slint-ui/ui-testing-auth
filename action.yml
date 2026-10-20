@@ -1,7 +1,8 @@
 name: Slint UI Testing auth
 description: >-
   Authenticates uv to the Slint UI Testing package index with a short-lived
-  token, exchanged for this job's GitHub OIDC token. No stored secret needed.
+  token, exchanged for this job's GitHub OIDC token, or in a pull request from
+  a fork, for proof of the run. No stored secret needed.
 author: Slint
 branding:
   icon: lock
@@ -23,7 +24,34 @@ inputs:
 outputs:
   token:
     description: The short-lived token (also exported for uv and masked in logs).
+    value: ${{ steps.prepare.outputs.token || steps.exchange.outputs.token }}
 
 runs:
-  using: node24
-  main: index.js
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/index.js" prepare
+      env:
+        INPUT_INDEX_NAME: ${{ inputs.index-name }}
+        INPUT_ACCOUNT_URL: ${{ inputs.account-url }}
+        INPUT_AUDIENCE: ${{ inputs.audience }}
+    # A pull request from a fork gets no OIDC token. The job proves which run
+    # it is with a public key uploaded as an artifact of that run.
+    - if: steps.prepare.outputs.mode == 'fork-pr'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.prepare.outputs.artifact }}
+        path: ${{ steps.prepare.outputs.public-key }}
+        retention-days: 1
+        if-no-files-found: error
+    - id: exchange
+      if: steps.prepare.outputs.mode == 'fork-pr'
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/index.js" exchange
+      env:
+        INPUT_INDEX_NAME: ${{ inputs.index-name }}
+        INPUT_ACCOUNT_URL: ${{ inputs.account-url }}
+        INPUT_AUDIENCE: ${{ inputs.audience }}
+        KEY_ARTIFACT: ${{ steps.prepare.outputs.artifact }}
+        PRIVATE_KEY_FILE: ${{ steps.prepare.outputs.private-key }}
