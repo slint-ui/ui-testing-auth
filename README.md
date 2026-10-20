@@ -71,8 +71,11 @@ carries your organization's entitlements.
   action right before the uv step that installs from the index. In a job that
   runs uv again more than an hour later, run the action again before it.
 - Pull requests from forks don't get an OIDC token, just as they don't get
-  secrets, so the step fails there.
+  secrets. For repositories Slint has enabled this for, the action gets the
+  token another way there, see below; elsewhere the step fails.
 - The action has no dependencies and runs on Linux, macOS and Windows runners.
+  It runs its script with the runner's `node`, which GitHub-hosted runners have;
+  a self-hosted runner needs Node.js 20 or later on the `PATH`.
 
 ## How it works
 
@@ -85,3 +88,16 @@ carries your organization's entitlements.
    the account.
 3. uv sends that token as the index password. `testing.slint.dev` checks it
    against the account's published keys.
+
+In a pull request from a fork, GitHub gives the job no OIDC token. There, for
+repositories Slint has enabled it for:
+
+1. The action makes a key pair and uploads the public key as an artifact
+   `ui-testing-token-key-<uuid>` of the job's own run.
+2. It sends the run's id and attempt and the artifact's name to
+   `POST <account-url>/api/auth/ci-token/fork-pr?resource=<audience>`.
+3. The account checks with GitHub that this run is a running pull request
+   from a fork of the repository, and that it uploaded that key. It answers
+   with the token encrypted to the key, so only this job can read it, although
+   anyone can read the artifact. The token carries the UI testing entitlement.
+4. The action decrypts it, deletes the private key, and hands the token to uv.
