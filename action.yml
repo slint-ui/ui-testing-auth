@@ -2,7 +2,8 @@ name: Slint UI Testing auth
 description: >-
   Authenticates uv to the Slint UI Testing package index with a short-lived
   token, exchanged for this job's GitHub OIDC token, or in a pull request from
-  a fork, for proof of the run. No stored secret needed.
+  a fork, for proof of the run. No stored secret needed, except on a
+  self-hosted runner that uses an organization CI key.
 author: Slint
 branding:
   icon: lock
@@ -20,6 +21,17 @@ inputs:
   audience:
     description: The service the token is for.
     default: https://testing.slint.dev
+  verification-code:
+    description: >-
+      The code shown when the repository was added under CI repositories, to
+      verify the registration with this run. Ignored once verified.
+    default: ""
+  ci-key:
+    description: >-
+      An organization CI key (slci_…), from a secret, to swap instead of the
+      job's GitHub OIDC token: for self-hosted runners. The runner's address
+      must be in the key's IP ranges.
+    default: ""
 
 outputs:
   token:
@@ -36,6 +48,8 @@ runs:
         INPUT_INDEX_NAME: ${{ inputs.index-name }}
         INPUT_ACCOUNT_URL: ${{ inputs.account-url }}
         INPUT_AUDIENCE: ${{ inputs.audience }}
+        INPUT_VERIFICATION_CODE: ${{ inputs.verification-code }}
+        INPUT_CI_KEY: ${{ inputs.ci-key }}
     # A pull request from a fork gets no OIDC token. The job proves which run
     # it is with a public key uploaded as an artifact of that run.
     - if: steps.prepare.outputs.mode == 'fork-pr'

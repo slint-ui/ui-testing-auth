@@ -2,9 +2,10 @@
 // as the index password. Dependency free, so there is nothing to build or
 // bundle. action.yml runs it in two steps around an artifact upload:
 //
-// - `prepare`: with a GitHub OIDC token, exchanges it and is done. In a pull
-//   request from a fork, which GitHub gives no OIDC token, it makes a key pair
-//   instead and writes the public key for action.yml to upload as an artifact.
+// - `prepare`: with an organization CI key, or else a GitHub OIDC token,
+//   exchanges it and is done. In a pull request from a fork, which GitHub gives
+//   no OIDC token, it makes a key pair instead and writes the public key for
+//   action.yml to upload as an artifact.
 // - `exchange`: asks the account for a token for this run, which the account
 //   checks with GitHub, and decrypts the answer with the private key.
 
@@ -82,20 +83,45 @@ const EXPLAIN = {
   400: "the account does not issue tokens for this audience",
   401: "the account did not accept the GitHub OIDC token",
   403:
-    "this repository is not registered: add it under CI repositories on your " +
-    "UI testing page in the Slint account (with a seat that includes UI testing)",
+    "this repository is not registered or not verified: add it under CI " +
+    "repositories on the UI Testing page of your Slint account and run once " +
+    "with its verification-code, or its organization has no UI testing",
   404: "the account does not issue CI tokens (feature off)",
 };
 
-async function entitlementToken(accountUrl, audience, oidcToken) {
+const CI_KEY_EXPLAIN = {
+  400: "the account does not issue tokens for this audience",
+  401: "the account did not accept the CI key: unknown, expired or revoked",
+  403:
+    "this runner's address is outside the CI key's IP ranges, or the " +
+    "organization has no UI testing",
+  404: "the account does not issue CI tokens (feature off)",
+  429: "too many token requests for this CI key",
+};
+
+// Swaps `credential` (a GitHub OIDC token or an organization CI key) for a
+// token. A verification code goes in a form body, as `verification_code`.
+async function entitlementToken(
+  accountUrl,
+  audience,
+  credential,
+  { code = null, explain = EXPLAIN } = {},
+) {
   const u = new URL("/api/auth/ci-token", accountUrl);
   u.searchParams.set("resource", audience);
+  const form = code
+    ? {
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ verification_code: code }).toString(),
+      }
+    : { headers: {} };
   return withRetries("Requesting the Slint token", async () => {
     let r;
     try {
       r = await fetch(u, {
         method: "POST",
-        headers: { authorization: `Bearer ${oidcToken}` },
+        headers: { ...form.headers, authorization: `Bearer ${credential}` },
+        ...(form.body ? { body: form.body } : {}),
         redirect: "manual",
       });
     } catch (e) {
@@ -105,7 +131,7 @@ async function entitlementToken(accountUrl, audience, oidcToken) {
       throw failure(`${u} redirected to ${r.headers.get("location")} (is it behind a login?)`);
     }
     if (!r.ok) {
-      const why = EXPLAIN[r.status] ?? "unexpected response";
+      const why = explain[r.status] ?? "unexpected response";
       throw failure(`${u} answered ${r.status}: ${why}`, r.status >= 500);
     }
     const { token } = await r.json();
@@ -222,12 +248,23 @@ function deliver(token, prefix) {
 
 async function prepare() {
   const { accountUrl, audience, prefix } = settings();
+  const ciKey = input("ci-key", "");
+  if (ciKey) {
+    console.log(`::add-mask::${ciKey}`);
+    deliver(
+      await entitlementToken(accountUrl, audience, ciKey, { explain: CI_KEY_EXPLAIN }),
+      prefix,
+    );
+    setOutput("mode", "done");
+    return;
+  }
   const hasOidc = process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
   if (hasOidc || !isForkPullRequest()) {
     // The GitHub token names the account as its audience, so it can't be
     // replayed against anything else.
     const oidcToken = await githubOidcToken(accountUrl);
-    deliver(await entitlementToken(accountUrl, audience, oidcToken), prefix);
+    const code = input("verification-code", "") || null;
+    deliver(await entitlementToken(accountUrl, audience, oidcToken, { code }), prefix);
     setOutput("mode", "done");
     return;
   }
