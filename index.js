@@ -230,15 +230,36 @@ function setOutput(name, value) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
+// The account gets a credential: only over https, but for a local one.
+function accountUrlInput() {
+  const value = trimSlash(input("account-url", "https://account.slint.dev"));
+  let u;
+  try {
+    u = new URL(value);
+  } catch {
+    throw failure(`account-url ${value} is not a URL`);
+  }
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  if (u.protocol !== "https:" && !(local && u.protocol === "http:")) {
+    throw failure(`account-url ${value} must use https`);
+  }
+  return value;
+}
+
 function settings() {
   return {
-    accountUrl: trimSlash(input("account-url", "https://account.slint.dev")),
+    accountUrl: accountUrlInput(),
     audience: trimSlash(input("audience", "https://testing.slint.dev")),
     prefix: uvEnvPrefix(input("index-name", "slint-private")),
   };
 }
 
+// A token is a JWT: anything else, a line break above all, could write other
+// variables into GITHUB_ENV.
+const TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 function deliver(token, prefix) {
+  if (!TOKEN_PATTERN.test(token)) throw failure("the account's token has unexpected characters");
   console.log(`::add-mask::${token}`);
   exportVariable(`${prefix}_USERNAME`, "__token__");
   exportVariable(`${prefix}_PASSWORD`, token);
@@ -250,6 +271,8 @@ async function prepare() {
   const { accountUrl, audience, prefix } = settings();
   const ciKey = input("ci-key", "");
   if (ciKey) {
+    // A mask covers one line; a key never has a line break.
+    if (/[\r\n]/.test(ciKey)) throw failure("ci-key has a line break: store the key alone");
     console.log(`::add-mask::${ciKey}`);
     deliver(
       await entitlementToken(accountUrl, audience, ciKey, { explain: CI_KEY_EXPLAIN }),

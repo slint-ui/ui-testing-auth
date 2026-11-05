@@ -140,6 +140,24 @@ describe("main", () => {
     assert.equal(calls[1].init.headers["content-type"], undefined);
   });
 
+  it("sends a credential only over https, but to a local account", async () => {
+    process.env.INPUT_ACCOUNT_URL = "http://account.example/";
+    await assert.rejects(action.prepare(), /must use https/);
+    assert.equal(calls.length, 0);
+    process.env.INPUT_ACCOUNT_URL = "http://localhost:8787";
+    routes["http://localhost:8787/api/auth/ci-token"] = () =>
+      Response.json({ token: "eyJ.slint.token" });
+    await action.prepare();
+    process.env.INPUT_ACCOUNT_URL = "https://account.example/";
+  });
+
+  it("refuses a token that could write other variables", async () => {
+    routes["https://account.example/api/auth/ci-token"] = () =>
+      Response.json({ token: "eyJ.a\nNODE_OPTIONS=--require=/tmp/x" });
+    await assert.rejects(action.prepare(), /unexpected characters/);
+    assert.equal(fs.existsSync(process.env.GITHUB_ENV), false);
+  });
+
   describe("with an organization CI key", () => {
     beforeEach(() => {
       process.env.INPUT_CI_KEY = "slci_secret";
@@ -172,6 +190,12 @@ describe("main", () => {
         /UV_INDEX_SLINT_PRIVATE_PASSWORD=eyJ\.slint\.token\n/,
       );
       assert.match(fs.readFileSync(process.env.GITHUB_OUTPUT, "utf8"), /mode=done\n/);
+    });
+
+    it("refuses a key with a line break, before sending it", async () => {
+      process.env.INPUT_CI_KEY = "slci_a\nb";
+      await assert.rejects(action.prepare(), /line break/);
+      assert.equal(calls.length, 0);
     });
 
     it("explains a runner outside the key's ranges", async () => {
