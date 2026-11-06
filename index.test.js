@@ -94,7 +94,7 @@ describe("main", () => {
   it("explains an unregistered repository", async () => {
     routes["https://account.example/api/auth/ci-token"] = () =>
       Response.json({ error: "forbidden" }, { status: 403 });
-    await assert.rejects(action.prepare(), /not registered/);
+    await assert.rejects(action.prepare(), /Connect GitHub/);
     assert.equal(calls.length, 2);
   });
 

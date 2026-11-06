@@ -39,17 +39,18 @@ slint-testing = { index = "slint-private" }
 
 ### Setup
 
-Register the repository on your UI testing page in the Slint account, under CI
-repositories (`owner/repo`). Your seat needs the UI testing add-on, and the
-token then carries its UI testing entitlement. Anyone else with UI testing may
-register the same repository too; a run works while any of them still has it.
+A repository belongs to one organization (a company or a personal account), and
+every run of it gets a token while that organization has UI testing, whoever
+holds its Seats. Any member adds it: on the UI Testing page of your Slint
+account, under CI repositories, choose **Connect GitHub**, authorize the Slint
+GitHub App (install it if needed), and tick the repositories you can push to.
 
-The first run records GitHub's id for the repository. From then on a renamed or
-transferred repository keeps working; one deleted and re-created under the same
-name doesn't, so remove its registration and add it again.
+A renamed repository keeps working. One moved to another owner is paused, and
+one deleted and re-created under the same name isn't served, so connect it
+again.
 
-Slint can also register a repository for your organization; the token then
-carries your organization's entitlements.
+CI outside GitHub Actions doesn't use this action: an owner or a manager creates
+an organization token on the same page, to store as a CI secret.
 
 ### Inputs
 
@@ -82,10 +83,8 @@ carries your organization's entitlements.
 1. The job asks GitHub for an OIDC token whose audience is the Slint account.
 2. The action sends it to `POST <account-url>/api/auth/ci-token?resource=<audience>`.
    The account checks it against GitHub's published keys, then looks up the
-   repository: registered by Slint for an organization, the token lists that
-   organization's entitlements; registered on a UI testing page, it carries the
-   UI testing entitlement of a seat that registered it. The token is signed by
-   the account.
+   organization's registration of the repository, pinned to GitHub's ids. The
+   token carries the UI testing entitlement and is signed by the account.
 3. uv sends that token as the index password. `testing.slint.dev` checks it
    against the account's published keys.
 

@@ -82,8 +82,9 @@ const EXPLAIN = {
   400: "the account does not issue tokens for this audience",
   401: "the account did not accept the GitHub OIDC token",
   403:
-    "this repository is not registered: add it under CI repositories on your " +
-    "UI testing page in the Slint account (with a seat that includes UI testing)",
+    "this repository is not registered for an organization with UI testing: " +
+    "use Connect GitHub under CI repositories on the UI Testing page of your " +
+    "Slint account",
   404: "the account does not issue CI tokens (feature off)",
 };
 
