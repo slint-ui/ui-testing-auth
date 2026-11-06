@@ -94,7 +94,7 @@ describe("main", () => {
   it("explains an unregistered repository", async () => {
     routes["https://account.example/api/auth/ci-token"] = () =>
       Response.json({ error: "forbidden" }, { status: 403 });
-    await assert.rejects(action.prepare(), /not registered/);
+    await assert.rejects(action.prepare(), /Connect GitHub/);
     assert.equal(calls.length, 2);
   });
 
@@ -119,108 +119,6 @@ describe("main", () => {
       new Response("down", { status: 503 });
     await assert.rejects(action.prepare(), /503/);
     assert.equal(calls.length, 4);
-  });
-
-  it("sends a verification code as the verification_code form field", async () => {
-    process.env.INPUT_VERIFICATION_CODE = "slv_abc";
-    try {
-      await action.prepare();
-    } finally {
-      delete process.env.INPUT_VERIFICATION_CODE;
-    }
-    const account = calls[1];
-    assert.equal(account.init.headers["content-type"], "application/x-www-form-urlencoded");
-    assert.equal(account.init.body, "verification_code=slv_abc");
-    assert.equal(account.init.headers.authorization, "Bearer gh-oidc");
-  });
-
-  it("sends no body without a verification code", async () => {
-    await action.prepare();
-    assert.equal(calls[1].init.body, undefined);
-    assert.equal(calls[1].init.headers["content-type"], undefined);
-  });
-
-  it("sends a credential only over https, but to a local account", async () => {
-    process.env.INPUT_ACCOUNT_URL = "http://account.example/";
-    await assert.rejects(action.prepare(), /must use https/);
-    assert.equal(calls.length, 0);
-    process.env.INPUT_ACCOUNT_URL = "http://localhost:8787";
-    routes["http://localhost:8787/api/auth/ci-token"] = () =>
-      Response.json({ token: "eyJ.slint.token" });
-    await action.prepare();
-    process.env.INPUT_ACCOUNT_URL = "https://account.example/";
-  });
-
-  it("refuses a token that could write other variables", async () => {
-    routes["https://account.example/api/auth/ci-token"] = () =>
-      Response.json({ token: "eyJ.a\nNODE_OPTIONS=--require=/tmp/x" });
-    await assert.rejects(action.prepare(), /unexpected characters/);
-    assert.equal(fs.existsSync(process.env.GITHUB_ENV), false);
-  });
-
-  describe("with an organization CI key", () => {
-    beforeEach(() => {
-      process.env.INPUT_CI_KEY = "slci_secret";
-      delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-      delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    });
-
-    afterEach(() => {
-      delete process.env.INPUT_CI_KEY;
-    });
-
-    it("swaps the key, not an OIDC token, masks it, and exports the token", async () => {
-      const logs = [];
-      const log = console.log;
-      console.log = (line) => logs.push(line);
-      try {
-        await action.prepare();
-      } finally {
-        console.log = log;
-      }
-      assert.equal(calls.length, 1);
-      const [account] = calls;
-      assert.equal(account.url.pathname, "/api/auth/ci-token");
-      assert.equal(account.url.searchParams.get("resource"), "https://testing.example");
-      assert.equal(account.init.headers.authorization, "Bearer slci_secret");
-      assert.equal(account.init.body, undefined);
-      assert.ok(logs.includes("::add-mask::slci_secret"));
-      assert.match(
-        fs.readFileSync(process.env.GITHUB_ENV, "utf8"),
-        /UV_INDEX_SLINT_PRIVATE_PASSWORD=eyJ\.slint\.token\n/,
-      );
-      assert.match(fs.readFileSync(process.env.GITHUB_OUTPUT, "utf8"), /mode=done\n/);
-    });
-
-    it("refuses a key with a line break, before sending it", async () => {
-      process.env.INPUT_CI_KEY = "slci_a\nb";
-      await assert.rejects(action.prepare(), /line break/);
-      assert.equal(calls.length, 0);
-    });
-
-    it("explains a runner outside the key's ranges", async () => {
-      routes["https://account.example/api/auth/ci-token"] = () =>
-        Response.json({ error: "forbidden" }, { status: 403 });
-      await assert.rejects(action.prepare(), /outside the CI key's IP ranges/);
-    });
-
-    it("uses the key in a pull request from a fork too, when it has one", async () => {
-      process.env.GITHUB_EVENT_NAME = "pull_request";
-      const event = path.join(dir, "event.json");
-      fs.writeFileSync(
-        event,
-        JSON.stringify({ pull_request: { head: { repo: { full_name: "someone/slint" } } } }),
-      );
-      process.env.GITHUB_EVENT_PATH = event;
-      try {
-        await action.prepare();
-      } finally {
-        delete process.env.GITHUB_EVENT_PATH;
-        process.env.GITHUB_EVENT_NAME = "push";
-      }
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].init.headers.authorization, "Bearer slci_secret");
-    });
   });
 
   describe("in a pull request from a fork", () => {

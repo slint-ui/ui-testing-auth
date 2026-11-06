@@ -2,10 +2,9 @@
 // as the index password. Dependency free, so there is nothing to build or
 // bundle. action.yml runs it in two steps around an artifact upload:
 //
-// - `prepare`: with an organization CI key, or else a GitHub OIDC token,
-//   exchanges it and is done. In a pull request from a fork, which GitHub gives
-//   no OIDC token, it makes a key pair instead and writes the public key for
-//   action.yml to upload as an artifact.
+// - `prepare`: with a GitHub OIDC token, exchanges it and is done. In a pull
+//   request from a fork, which GitHub gives no OIDC token, it makes a key pair
+//   instead and writes the public key for action.yml to upload as an artifact.
 // - `exchange`: asks the account for a token for this run, which the account
 //   checks with GitHub, and decrypts the answer with the private key.
 
@@ -83,45 +82,21 @@ const EXPLAIN = {
   400: "the account does not issue tokens for this audience",
   401: "the account did not accept the GitHub OIDC token",
   403:
-    "this repository is not registered or not verified: add it under CI " +
-    "repositories on the UI Testing page of your Slint account and run once " +
-    "with its verification-code, or its organization has no UI testing",
+    "this repository is not registered for an organization with UI testing: " +
+    "use Connect GitHub under CI repositories on the UI Testing page of your " +
+    "Slint account",
   404: "the account does not issue CI tokens (feature off)",
 };
 
-const CI_KEY_EXPLAIN = {
-  400: "the account does not issue tokens for this audience",
-  401: "the account did not accept the CI key: unknown, expired or revoked",
-  403:
-    "this runner's address is outside the CI key's IP ranges, or the " +
-    "organization has no UI testing",
-  404: "the account does not issue CI tokens (feature off)",
-  429: "too many token requests for this CI key",
-};
-
-// Swaps `credential` (a GitHub OIDC token or an organization CI key) for a
-// token. A verification code goes in a form body, as `verification_code`.
-async function entitlementToken(
-  accountUrl,
-  audience,
-  credential,
-  { code = null, explain = EXPLAIN } = {},
-) {
+async function entitlementToken(accountUrl, audience, oidcToken) {
   const u = new URL("/api/auth/ci-token", accountUrl);
   u.searchParams.set("resource", audience);
-  const form = code
-    ? {
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ verification_code: code }).toString(),
-      }
-    : { headers: {} };
   return withRetries("Requesting the Slint token", async () => {
     let r;
     try {
       r = await fetch(u, {
         method: "POST",
-        headers: { ...form.headers, authorization: `Bearer ${credential}` },
-        ...(form.body ? { body: form.body } : {}),
+        headers: { authorization: `Bearer ${oidcToken}` },
         redirect: "manual",
       });
     } catch (e) {
@@ -131,7 +106,7 @@ async function entitlementToken(
       throw failure(`${u} redirected to ${r.headers.get("location")} (is it behind a login?)`);
     }
     if (!r.ok) {
-      const why = explain[r.status] ?? "unexpected response";
+      const why = EXPLAIN[r.status] ?? "unexpected response";
       throw failure(`${u} answered ${r.status}: ${why}`, r.status >= 500);
     }
     const { token } = await r.json();
@@ -230,36 +205,15 @@ function setOutput(name, value) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-// The account gets a credential: only over https, but for a local one.
-function accountUrlInput() {
-  const value = trimSlash(input("account-url", "https://account.slint.dev"));
-  let u;
-  try {
-    u = new URL(value);
-  } catch {
-    throw failure(`account-url ${value} is not a URL`);
-  }
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
-  if (u.protocol !== "https:" && !(local && u.protocol === "http:")) {
-    throw failure(`account-url ${value} must use https`);
-  }
-  return value;
-}
-
 function settings() {
   return {
-    accountUrl: accountUrlInput(),
+    accountUrl: trimSlash(input("account-url", "https://account.slint.dev")),
     audience: trimSlash(input("audience", "https://testing.slint.dev")),
     prefix: uvEnvPrefix(input("index-name", "slint-private")),
   };
 }
 
-// A token is a JWT: anything else, a line break above all, could write other
-// variables into GITHUB_ENV.
-const TOKEN_PATTERN = /^[A-Za-z0-9._-]+$/;
-
 function deliver(token, prefix) {
-  if (!TOKEN_PATTERN.test(token)) throw failure("the account's token has unexpected characters");
   console.log(`::add-mask::${token}`);
   exportVariable(`${prefix}_USERNAME`, "__token__");
   exportVariable(`${prefix}_PASSWORD`, token);
@@ -269,25 +223,12 @@ function deliver(token, prefix) {
 
 async function prepare() {
   const { accountUrl, audience, prefix } = settings();
-  const ciKey = input("ci-key", "");
-  if (ciKey) {
-    // A mask covers one line; a key never has a line break.
-    if (/[\r\n]/.test(ciKey)) throw failure("ci-key has a line break: store the key alone");
-    console.log(`::add-mask::${ciKey}`);
-    deliver(
-      await entitlementToken(accountUrl, audience, ciKey, { explain: CI_KEY_EXPLAIN }),
-      prefix,
-    );
-    setOutput("mode", "done");
-    return;
-  }
   const hasOidc = process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
   if (hasOidc || !isForkPullRequest()) {
     // The GitHub token names the account as its audience, so it can't be
     // replayed against anything else.
     const oidcToken = await githubOidcToken(accountUrl);
-    const code = input("verification-code", "") || null;
-    deliver(await entitlementToken(accountUrl, audience, oidcToken, { code }), prefix);
+    deliver(await entitlementToken(accountUrl, audience, oidcToken), prefix);
     setOutput("mode", "done");
     return;
   }

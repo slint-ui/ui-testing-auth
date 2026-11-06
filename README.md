@@ -39,40 +39,18 @@ slint-testing = { index = "slint-private" }
 
 ### Setup
 
-Add the repository on the UI Testing page of your Slint account, under CI
-repositories (`owner/repo`). It belongs to the organization that is active
-there, which needs UI testing; any member may add one. The page shows a
-one-time code: pass it as `verification-code` and run the workflow once on a
-branch (a push, a manual or a scheduled run; never a pull request):
+A repository belongs to one organization (a company or a personal account), and
+every run of it gets a token while that organization has UI testing, whoever
+holds its Seats. Any member adds it: on the UI Testing page of your Slint
+account, under CI repositories, choose **Connect GitHub**, authorize the Slint
+GitHub App (install it if needed), and tick the repositories you can push to.
 
-```yaml
-      - uses: slint-ui/ui-testing-auth@v1
-        with:
-          verification-code: slv_…
-```
+A renamed repository keeps working. One moved to another owner is paused, and
+one deleted and re-created under the same name isn't served, so connect it
+again.
 
-That run verifies the registration and records GitHub's ids for the
-repository and its owner. From then on every run gets a token while the
-organization has UI testing, and the code is ignored, so it may stay. A
-renamed repository keeps working; one moved to another owner is paused until it
-is verified again with a new code; one deleted and re-created under the same
-name doesn't, so remove its registration and add it again.
-
-### Self-hosted runners
-
-A self-hosted runner can use an organization CI key instead of the OIDC token.
-An owner or a manager creates one on the UI Testing page, under CI keys, with
-the IP ranges the runner uses. Store it as a secret and pass it as `ci-key`;
-the job then needs no `id-token` permission:
-
-```yaml
-      - uses: slint-ui/ui-testing-auth@v1
-        with:
-          ci-key: ${{ secrets.SLINT_CI_KEY }}
-```
-
-The key is refused from outside its ranges, once it expires or is revoked, and
-once the organization no longer has UI testing.
+CI outside GitHub Actions doesn't use this action: an owner or a manager creates
+an organization token on the same page, to store as a CI secret.
 
 ### Inputs
 
@@ -81,8 +59,6 @@ once the organization no longer has UI testing.
 | `index-name`  | `slint-private`             | The `[[tool.uv.index]]` name. The action exports `UV_INDEX_<NAME>_USERNAME` and `_PASSWORD` for it. |
 | `account-url` | `https://account.slint.dev` | The Slint account that issues the token.                                                            |
 | `audience`    | `https://testing.slint.dev` | The service the token is for.                                                                       |
-| `verification-code` | | The registration's one-time code, to verify it with this run. Ignored once verified.            |
-| `ci-key`      |                             | An organization CI key (`slci_…`) from a secret, swapped instead of the OIDC token.                 |
 
 ### Outputs
 
@@ -107,11 +83,8 @@ once the organization no longer has UI testing.
 1. The job asks GitHub for an OIDC token whose audience is the Slint account.
 2. The action sends it to `POST <account-url>/api/auth/ci-token?resource=<audience>`.
    The account checks it against GitHub's published keys, then looks up the
-   organization's verified registration of the repository, or verifies a
-   pending one with the `verification_code` the action sends in a form body.
-   The token carries the UI testing entitlement and is signed by the account.
-   With `ci-key`, the action sends the key instead of an OIDC token, and the
-   account checks the runner's address against the key's ranges.
+   organization's registration of the repository, pinned to GitHub's ids. The
+   token carries the UI testing entitlement and is signed by the account.
 3. uv sends that token as the index password. `testing.slint.dev` checks it
    against the account's published keys.
 
